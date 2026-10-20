@@ -190,6 +190,7 @@
             <div class="right-buttons">
                 <button id="diffBtn" onclick="toggleDiff()" title="View Unsaved Changes vs Last Save">Diff</button>
                 <button id="previewBtn" onclick="togglePreview()" title="Toggle Preview for supported files (HTML, Markdown, LaTeX, CSV, XLSX, SVG, images — see README)">Preview</button>
+                <button id="consoleToggleBtn" onclick="toggleConsolePanel()" title="Toggle Console (Ctrl+`)">Console</button>
                 <button onclick="toggleSettings()" title="Editor Settings">Settings</button>
             </div>
         </div>
@@ -228,8 +229,28 @@
         </div>
         
         <div id="searchResults"></div>
+
+        <!-- Console Panel: spans the full editor width under editor, minimap and preview -->
+        <div class="console-panel" id="consolePanel" style="display: none;" tabindex="-1">
+            <div class="resize-handle-horizontal" id="consoleResizeHandle"></div>
+            <div class="console-header">
+                <span class="console-title">Console</span>
+                <button id="consoleRunBtn" class="console-run-btn" onclick="consoleRunning ? stopConsoleRun() : runActiveFileInConsole()" title="Run active file (Ctrl+Enter)">▶ Run</button>
+                <div class="console-filters">
+                    <button class="console-filter-chip active" data-filter="all" onclick="setConsoleFilter('all')">All</button>
+                    <button class="console-filter-chip" data-filter="log" onclick="setConsoleFilter('log')">Log</button>
+                    <button class="console-filter-chip" data-filter="warn" onclick="setConsoleFilter('warn')">Warn</button>
+                    <button class="console-filter-chip" data-filter="error" onclick="setConsoleFilter('error')">Error</button>
+                </div>
+                <span class="console-spacer"></span>
+                <button class="console-clear-btn" onclick="clearConsole()" title="Clear (Ctrl+L inside the console)">Clear</button>
+                <button class="console-close-btn" onclick="closeConsolePanel()" title="Close Console">&times;</button>
+            </div>
+            <div class="console-output" id="consoleOutput" role="log" aria-live="polite"></div>
+        </div>
         
         <div class="status-bar" id="statusBar">
+            <span class="console-badge" id="consoleBadge" style="display: none;" onclick="openConsolePanel()" title="Open Console"></span>
             <span class="notification" id="notification"></span>
             <span id="statusContent"></span>
         </div>
@@ -343,6 +364,7 @@
     <script src="js/editor.js"></script>
     <script src="js/session.js"></script>
     <script src="js/minimap.js"></script>
+    <script src="js/console.js"></script>
     <script src="js/main.js"></script>
 </body>
 </html>

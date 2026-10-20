@@ -133,6 +133,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Initialise minimap now that the editor and session are ready
     if (typeof initMinimap === 'function') initMinimap();
 
+    // Console panel (run active .js file in a sandbox, capture console output)
+    if (typeof initConsolePanel === 'function') initConsolePanel();
+
     // Capture-phase listener for Ctrl+W — Edge intercepts this at browser level
     // before the bubbling keydown fires, so we must use capture to beat it.
     document.addEventListener('keydown', (e) => {
@@ -402,8 +405,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         const processSnapshot = async (snap) => {
             const handle = snap.handlePromise ? await snap.handlePromise : null;
             if (handle) {
+                const countBefore = filesProcessed;
                 try { await processHandle(handle, baseDropPath); return; }
-                catch (err) { console.warn('Handle processing failed; trying legacy path for this item:', err); }
+                catch (err) {
+                    // The legacy walk below re-visits this item. Files that already loaded are skipped by
+                    // createFile's existing-path guard, but they'd be counted twice, so roll the count back.
+                    filesProcessed = countBefore;
+                    console.warn('Handle processing failed; trying legacy path for this item:', err);
+                }
             }
             if (snap.entry && snap.entry.isDirectory) {
                 await processEntry(snap.entry, snap.entry.name);
@@ -611,6 +620,9 @@ const commands = [
     { id: 'download-project', label: 'Download Project (ZIP)', action: downloadProject },
     { id: 'close-all', label: 'Close All Tabs', action: closeAllTabs },
     { id: 'toggle-preview', label: 'Toggle Preview', action: togglePreview },
+    { id: 'toggle-console', label: 'Toggle Console', action: () => toggleConsolePanel(), shortcut: 'Ctrl+`' },
+    { id: 'run-file', label: 'Console: Run Active File', action: () => runActiveFileInConsole(), shortcut: 'Ctrl+Enter' },
+    { id: 'clear-console', label: 'Console: Clear', action: () => clearConsole() },
     { id: 'toggle-diff', label: 'Toggle Diff (Unsaved Changes)', action: toggleDiff },
     { id: 'toggle-sidebar', label: 'Toggle Sidebar', action: toggleSidebar },
     { id: 'collapse-all', label: 'Collapse All Folders', action: collapseAll },

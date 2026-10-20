@@ -7,7 +7,8 @@ const defaultSettings = {
     sidebarWidth: '250px', editorPaneFlexBasis: '50%', previewPaneFlexBasis: '50%',
     autoSaveSession: true, autoSaveOnBlur: false, fileTemplates: true,
     bracketColorization: true, autoSaveInterval: false, autoSaveIntervalMs: 30000,
-    treeDeleteWindowMs: 1500, activeLineHighlight: true
+    treeDeleteWindowMs: 1500, activeLineHighlight: true,
+    consoleHeightPct: 30
 };
 
 const RECENT_FILES_MAX = 20;
