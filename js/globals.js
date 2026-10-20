@@ -24,9 +24,12 @@ let pinnedTabs = new Set(); // Set of pinned file paths
 let lastClickedTreePath = null; // Last clicked file or folder in the tree
 let lastClickedTreeTime = 0;   // Timestamp of that click
 
-const VERSION = "0.3.4";
-const SESSION_STORAGE_KEY = `codeEditorSession_${VERSION}`;
-const SETTINGS_STORAGE_KEY = 'codeEditorSettings';
+const VERSION = "0.4.0";
+// v2 fork: namespace every storage key so coding-project-v2 never shares browser storage
+// with the original coding-project (even when both are served from the same origin).
+const STORAGE_NAMESPACE = 'codeEditV2';
+const SESSION_STORAGE_KEY = `${STORAGE_NAMESPACE}_session_${VERSION}`;
+const SETTINGS_STORAGE_KEY = `${STORAGE_NAMESPACE}_settings`;
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
 const LARGE_FILE_THRESHOLD_BYTES = 1 * 1024 * 1024;
 const PREVIEWABLE_EXTENSIONS = new Set([

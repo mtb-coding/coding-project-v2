@@ -4,6 +4,9 @@ CodeEdit is a fully open-source, portable, persistent, and lightweight code edit
 
 The ambitious goal of this editor is to eventually make the user question not what they can do, but what they cannot do; a question I eventually seek to answer with, 'nothing.'
 
+## 🔀 About this fork (v2)
+This is **coding-project-v2**, a fork of [mtb-coding/coding-project](https://github.com/mtb-coding/coding-project) starting at v0.4.0. It keeps the full history of the original up to v0.3.4 and stores its session and settings under its own `codeEditV2_` browser storage keys, so it never reads or overwrites data saved by the original editor.
+
 ## ⚠️ Warning
 **For the stable versions, see releases. Repo code is the current WIP version and might be broken.**
 

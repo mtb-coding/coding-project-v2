@@ -1,5 +1,12 @@
 *(repo might not be updated as fast as the changelog; as such the changes here might not be there yet)*
 
+# Changes in v0.4.0 (coding-project-v2)
+
+## Fork
+- Forked from mtb-coding/coding-project at v0.3.4 (`ad7e22d`) as coding-project-v2, with full history preserved.
+- Version bumped to 0.4.0.
+- Session and settings storage keys are now namespaced (`codeEditV2_session_0.4.0`, `codeEditV2_settings`), so v2 has its own browser storage and never shares it with the original. Existing v0.3.x sessions and settings are intentionally not migrated.
+
 # Changes in v0.3.4
 
 ## Bugfixes
