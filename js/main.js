@@ -366,76 +366,64 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
         };
 
-        try {
-            let usedModernAPI = false;
-            
-            // 1. Attempt Modern File System Access API
-            // IMPORTANT: Must collect getAsFileSystemHandle() calls *synchronously* before any await.
-            // After the first await the DataTransferItemList becomes stale for multi-file drops.
-            if (items && items.length > 0 && 'getAsFileSystemHandle' in DataTransferItem.prototype) {
-                const handlePromises = [];
-                for (let i = 0; i < items.length; i++) {
-                    if (items[i].kind === 'file') {
-                        handlePromises.push(
-                            items[i].getAsFileSystemHandle().catch(err => {
-                                console.warn("FileSystemHandle failed for one item (will try legacy for others if needed):", err);
-                                return null;
-                            })
-                        );
-                    }
+        // Snapshot EVERYTHING from the DataTransfer synchronously, before any await.
+        // Browsers clear DataTransferItemList/FileList once the drop handler yields, so any
+        // item, entry, or File not captured here is lost — that is what made multi-file drops
+        // import only one file (and made the legacy fallback see an empty list).
+        const dropSnapshots = [];
+        if (items && items.length > 0) {
+            const canUseHandles = 'getAsFileSystemHandle' in DataTransferItem.prototype;
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i];
+                if (item.kind !== 'file') continue;
+                let handlePromise = null;
+                if (canUseHandles) {
+                    try {
+                        handlePromise = item.getAsFileSystemHandle().catch(err => {
+                            console.warn('FileSystemHandle failed for one item; falling back for that item:', err);
+                            return null;
+                        });
+                    } catch (err) { handlePromise = null; }
                 }
-
-                if (handlePromises.length > 0) {
-                    const handleResults = await Promise.allSettled(handlePromises);
-                    const processQueue = [];
-
-                    for (const result of handleResults) {
-                        if (result.status === 'fulfilled' && result.value) {
-                            processQueue.push(processHandle(result.value, baseDropPath));
-                            usedModernAPI = true;
-                        }
-                    }
-
-                    if (usedModernAPI) {
-                        await Promise.allSettled(processQueue);
-                    }
-                }
+                let entry = null;
+                try { entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null; } catch (err) { entry = null; }
+                let file = null;
+                try { file = item.getAsFile(); } catch (err) { file = null; }
+                dropSnapshots.push({ handlePromise, entry, file });
             }
+        }
+        if (dropSnapshots.length === 0 && files && files.length > 0) {
+            for (let i = 0; i < files.length; i++) dropSnapshots.push({ handlePromise: null, entry: null, file: files[i] });
+        }
 
-            // 2. Fallback to Legacy APIs if Modern API is unsupported or threw
-            if (!usedModernAPI) {
-                const processQueue = [];
-                let usedLegacyEntry = false;
+        // Process one dropped item: File System Access handle first, then legacy entry
+        // (needed for folders), then the plain File. Each item falls back on its own, so one
+        // failure never drops the rest.
+        const processSnapshot = async (snap) => {
+            const handle = snap.handlePromise ? await snap.handlePromise : null;
+            if (handle) {
+                try { await processHandle(handle, baseDropPath); return; }
+                catch (err) { console.warn('Handle processing failed; trying legacy path for this item:', err); }
+            }
+            if (snap.entry && snap.entry.isDirectory) {
+                await processEntry(snap.entry, snap.entry.name);
+                return;
+            }
+            // Top-level files bypass entry.file() to prevent EncodingError on basic file drops.
+            if (snap.file) await processFileDirect(snap.file, baseDropPath);
+        };
 
-                if (items && items.length > 0) {
-                    for (let i = 0; i < items.length; i++) {
-                        if (items[i].kind === 'file') {
-                            const entry = items[i].webkitGetAsEntry ? items[i].webkitGetAsEntry() : null;
-                            if (entry) {
-                                usedLegacyEntry = true;
-                                if (entry.isFile) {
-                                    // Bypass entry.file() for top-level files to prevent EncodingError on basic file drops
-                                    const file = items[i].getAsFile();
-                                    if (file) processQueue.push(processFileDirect(file, baseDropPath));
-                                } else if (entry.isDirectory) {
-                                    processQueue.push(processEntry(entry, entry.name));
-                                }
-                            } else {
-                                const file = items[i].getAsFile();
-                                if (file) processQueue.push(processFileDirect(file, baseDropPath));
-                            }
-                        }
-                    }
+        try {
+            const results = await Promise.allSettled(dropSnapshots.map(processSnapshot));
+            const failures = results.filter(r => r.status === 'rejected');
+            if (failures.length > 0) {
+                failures.forEach(f => console.error('Dropped item failed:', f.reason));
+                const encodingFailure = failures.some(f => f.reason && (f.reason.name === 'EncodingError' || (f.reason.message && f.reason.message.includes('URI'))));
+                if (encodingFailure) {
+                    showNotification("Browser security restricted folder drop on file://. Please use the 'Open Directory' button instead.", true, 6000);
+                } else if (filesProcessed === 0) {
+                    showNotification("Error processing dropped items.", true);
                 }
-                
-                if (!usedLegacyEntry && files && files.length > 0) {
-                    for (let i = 0; i < files.length; i++) {
-                        processQueue.push(processFileDirect(files[i], baseDropPath));
-                    }
-                }
-
-                // If any of these reject, it will hit the catch block below.
-                await Promise.all(processQueue); 
             }
 
             renderFileTree(); 

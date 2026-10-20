@@ -1,7 +1,7 @@
 ---CURRENT---
-Dragdropping multiple selected files uploadas only 1.
 
 ---FIXED---
+Dragdropping multiple selected files uploadas only 1. [fixed in v0.4.0: every dropped item is now captured synchronously before any await, with per-item fallback]
 Minor bug: "Done — 0 item(s) dropped." status message when dragdropping an item within the explorer (this has existed ever since internal dragdropping was added and I have no clue how to fix it). [finally fixed after 3 separate attempts]
 Clicking/opening files does not immediately highlight (turn them blue) them in the tree; they are only highlighted upon refresh. [fixed]
 External dragdrop doesn't work, while the notification states that the file(s) dragdrop was successful [fixed]

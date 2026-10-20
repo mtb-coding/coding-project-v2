@@ -7,6 +7,12 @@
 - Version bumped to 0.4.0.
 - Session and settings storage keys are now namespaced (`codeEditV2_session_0.4.0`, `codeEditV2_settings`), so v2 has its own browser storage and never shares it with the original. Existing v0.3.x sessions and settings are intentionally not migrated.
 
+## Bugfixes
+- Fixed dragging several selected files from the OS into the file tree importing only one (or none). The v0.3.4 fix only collected `getAsFileSystemHandle()` promises up front; the legacy fallback still read `DataTransferItem`s and `FileList` after an `await`, by which point the browser has cleared them, and items whose handle failed were silently dropped. Every item's handle, entry, and `File` is now snapshotted synchronously before any `await`, and each item falls back on its own (handle, then legacy entry for folders, then the plain `File`), so one failure no longer loses the rest.
+
+## Cleanup
+- Confirmed the scrollbar diagnostics logging (added in `7fdc179`) is fully removed; no `[Scrollbar]` console output remains.
+
 # Changes in v0.3.4
 
 ## Bugfixes
