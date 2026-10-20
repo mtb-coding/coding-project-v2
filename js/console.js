@@ -1,7 +1,8 @@
 // ==========================================
-// --- Console Panel (v0.4.x, gate 3)      ---
+// --- Console Panel (v0.4.x, gates 3 + 5) ---
 // ==========================================
 // Runs the active .js file in an isolated sandbox and shows its console output.
+// .py files run through Pyodide in their own warm sandboxed worker (see console-python.js).
 //
 // Sandbox: a hidden <iframe sandbox="allow-scripts"> (opaque origin, so user code can never
 // read or write the editor's storage, DOM, or session) that spawns a Web Worker from a Blob.
@@ -10,7 +11,7 @@
 // no network requests, works offline and from file://.
 // Console output never renders into #previewFrame.
 
-const CONSOLE_RUNNABLE_EXTENSIONS = new Set(['js']); // Python joins at step 5
+const CONSOLE_RUNNABLE_EXTENSIONS = new Set(['js', 'py']); // .py → Pyodide (console-python.js)
 const CONSOLE_MIN_HEIGHT_PX = 120;
 const CONSOLE_MAX_HEIGHT_FRAC = 0.6;
 
@@ -18,6 +19,7 @@ let consoleOpen = false;
 let consoleFilter = 'all';           // all | log | warn | error
 let consoleRows = [];                // { kind, level, text, stack, loc, count, time }
 let consoleRunning = false;
+let consoleRunKind = null;           // 'js' | 'py' for the current/last run
 let consoleRunFrame = null;
 let consoleRunToken = 0;
 let consoleRunFileName = '';
@@ -172,7 +174,7 @@ function runActiveFileInConsole() {
     if (!consoleOpen) openConsolePanel();
     if (consoleRunning) { stopConsoleRun(); }
     const path = _consoleActiveRunnable();
-    if (!path) { renderConsole(); showNotification('Console runs .js files.', true); return; }
+    if (!path) { renderConsole(); showNotification('Console runs .js and .py files.', true); return; }
 
     _consoleTeardownSandbox();
     const token = ++consoleRunToken;
@@ -181,6 +183,16 @@ function runActiveFileInConsole() {
     const now = new Date();
     const hhmmss = now.toTimeString().slice(0, 8);
     consoleRows.push({ kind: 'separator', text: `— Run ${consoleRunFileName} · ${hhmmss} —` });
+
+    if (path.toLowerCase().endsWith('.py')) {
+        // Python: warm Pyodide worker (loaded lazily on the first .py run). Live buffer, unsaved edits included.
+        consoleRunKind = 'py';
+        _consoleSetRunning(true);
+        pyRunInConsole(codeEditor.getValue(), consoleRunFileName.replace(/[\r\n"]/g, '_'));
+        renderConsole();
+        return;
+    }
+    consoleRunKind = 'js';
 
     // Use the live buffer (includes unsaved edits). sourceURL names the file in stack traces.
     const safeName = consoleRunFileName.replace(/[\r\n\s]/g, '_');
@@ -203,6 +215,13 @@ function runActiveFileInConsole() {
 }
 
 function stopConsoleRun() {
+    if (consoleRunKind === 'py') {
+        if (!consoleRunning) return;
+        _consoleSetRunning(false);
+        pyStopAndRestart();   // terminates the Python worker and boots a fresh one ("Restarting Python…")
+        renderConsole();
+        return;
+    }
     if (!consoleRunning && !consoleRunFrame) return;
     _consoleTeardownSandbox();
     consoleRunToken++;
@@ -239,7 +258,7 @@ window.addEventListener('message', (e) => {
 function _consoleHandleItem(item) {
     if (!item) return;
     if (item.type === 'console') _consoleAddRow(item.level, item.text, '');
-    else if (item.type === 'uncaught') _consoleAddRow('error', item.text, item.stack || '', true);
+    else if (item.type === 'uncaught') _consoleAddRow('error', item.text, item.stack || '', true, item.loc || null);
     else if (item.type === 'truncated') {
         consoleRows.push({ kind: 'row', level: 'warn', text: `…output truncated (${item.limit}-line limit per run). Press ■ Stop to end the script.`, stack: '', count: 1 });
     }
@@ -253,10 +272,11 @@ function _consoleParseLoc(stack) {
     return m ? { line: parseInt(m[1], 10), col: parseInt(m[2], 10) } : null;
 }
 
-function _consoleAddRow(level, text, stack, uncaught) {
+function _consoleAddRow(level, text, stack, uncaught, knownLoc) {
     // Strip the internal worker frames (blob:/importScripts) so stacks only show user code.
     const cleanStack = (stack || '').split('\n').filter(l => !/blob:|importScripts|self\.onmessage/.test(l)).join('\n');
-    const loc = (level === 'error') ? _consoleParseLoc(stack || text) : null;
+    // Python tracebacks arrive with their `File "x.py", line N` already parsed into knownLoc.
+    const loc = knownLoc || ((level === 'error') ? _consoleParseLoc(stack || text) : null);
     const last = consoleRows[consoleRows.length - 1];
     if (last && last.kind === 'row' && last.level === level && last.text === text && last.stack === cleanStack) {
         last.count++;
@@ -299,14 +319,14 @@ function renderConsole() {
     if (list) {
         const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 24;
         list.innerHTML = '';
-        const visible = consoleRows.filter(r => r.kind === 'separator' || consoleFilter === 'all' || r.level === consoleFilter);
+        const visible = consoleRows.filter(r => r.kind === 'separator' || r.kind === 'note' || consoleFilter === 'all' || r.level === consoleFilter);
         const hasRows = visible.some(r => r.kind === 'row');
         if (!hasRows && !consoleRunning) {
             const empty = document.createElement('div');
             empty.className = 'console-empty';
             empty.textContent = (!_consoleActiveRunnable() && consoleRows.length === 0)
-                ? 'Console runs .js files.'
-                : 'Run a JS file to see output here.';
+                ? 'Console runs .js and .py files.'
+                : 'Run a JS or Python file to see output here.';
             list.appendChild(empty);
         }
         for (const r of visible) list.appendChild(_consoleRowEl(r));
@@ -318,6 +338,7 @@ function renderConsole() {
 function _consoleRowEl(r) {
     const el = document.createElement('div');
     if (r.kind === 'separator') { el.className = 'console-separator'; el.textContent = r.text; return el; }
+    if (r.kind === 'note') { el.className = 'console-note'; el.textContent = r.text; return el; }  // dim status line (Python loading/restarting)
     el.className = `console-row console-${r.level}`;
     const icon = document.createElement('span');
     icon.className = 'console-icon';

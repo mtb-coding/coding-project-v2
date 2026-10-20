@@ -627,6 +627,7 @@ const commands = [
     { id: 'toggle-console', label: 'Toggle Console', action: () => toggleConsolePanel(), shortcut: 'Ctrl+`' },
     { id: 'run-file', label: 'Console: Run Active File', action: () => runActiveFileInConsole(), shortcut: 'Ctrl+Enter' },
     { id: 'clear-console', label: 'Console: Clear', action: () => clearConsole() },
+    { id: 'restart-python', label: 'Console: Restart Python', action: () => restartPythonRuntime() },
     { id: 'toggle-diff', label: 'Toggle Diff (Unsaved Changes)', action: toggleDiff },
     { id: 'toggle-sidebar', label: 'Toggle Sidebar', action: toggleSidebar },
     { id: 'collapse-all', label: 'Collapse All Folders', action: collapseAll },
