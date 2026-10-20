@@ -17,6 +17,15 @@
 - Output is batched in the worker (one message per ~50ms or 200 lines) so a script that logs in a tight loop can't flood the editor; each run is capped at 5,000 console lines, after which a single `…output truncated` row appears and Stop still works. The panel keeps the latest 2,000 rows.
 - Status bar badge (`● 2 errors · 1 warn`) appears when the panel is closed and has output; click it to open the panel.
 
+## Console: Python
+- `.py` files are now runnable in the Console (`▶ Run`, or `Ctrl+Enter` with the same scoping as `.js`); the empty state reads "Console runs .js and .py files."
+- Python runs on [Pyodide](https://pyodide.org) **v314.0.7** (CPython 3.14), pinned. It is loaded lazily on the first `.py` run only, so the editor still boots with zero Pyodide requests. The first run shows a dim `Loading Python runtime (~5 MB, first run only)…` row; the runtime then stays warm between runs, and each run gets fresh globals.
+- Sources, in order (`PYODIDE_SOURCES` in `js/console-python.js`): the jsDelivr CDN, then a vendored copy of the core runtime at the same version in `vendor/pyodide/` (`pyodide.mjs`, `pyodide.asm.mjs`, `pyodide.asm.wasm`, `python_stdlib.zip`, `pyodide-lock.json`, ~13 MB, byte-identical to the CDN). If every source fails, an error row reads `Python runtime unavailable` with the reason for each source.
+- Isolation matches the JS console: Python runs in a dedicated module Web Worker inside a hidden `sandbox="allow-scripts"` iframe (opaque origin), so user code can't reach the editor's DOM, storage or session. Because a same-origin static server sends no CORS headers, the sandbox can't fetch `vendor/pyodide/` itself; the editor page reads those files and hands them to the sandbox as Blobs instead.
+- `print()` and stdout become log rows and stderr becomes error rows, batched and capped like JS output (~50ms / 200 lines per message, 5,000 lines per run, then one `…output truncated` row). Tracebacks show as an error row with the exception as its title, a collapsible traceback limited to your file's frames, and a `file:line` link to the innermost line in your file (syntax errors included).
+- `input()` raises immediately and shows an error row `input() not supported` (with a link to the call); reading `sys.stdin` directly raises `OSError`. There is no stdin box.
+- `■ Stop` terminates the Python worker and starts a fresh one, with a dim `Restarting Python…` row (Python can't be interrupted in place without cross-origin isolation). A run started while it restarts waits for it and then runs.
+
 ## Bugfixes (drop follow-up)
 - When a dropped folder's File System Access walk failed partway and fell back to the legacy walk, files that had already loaded were counted twice in the "item(s) dropped" message. Each dropped item now keeps its own count, and only that item's count is reset before its fallback, so items processed in parallel are never miscounted (the files themselves were never duplicated).
 

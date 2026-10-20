@@ -14,6 +14,7 @@ This is **coding-project-v2**, a fork of [mtb-coding/coding-project](https://git
 *   **Run JS**: Open the **Console** panel (`Console` button, `Ctrl+\``, or the command palette) and press **▶ Run** (`Ctrl+Enter` in the editor or console) to run the active `.js` file. It runs in an isolated sandbox with no access to the editor or its storage, and works offline. While a script is running, or still has timers pending, the button becomes **■ Stop**. Output is capped at 5,000 lines per run.
 *   **Output**: `console.log`, `warn`, `error`, uncaught errors and unhandled promise rejections appear in the panel. Errors link to `file:line`; repeated lines collapse into ×N. Filter by All / Log / Warn / Error, and **Clear** (`Ctrl+L` in the panel) to empty it.
 *   When the panel is closed, a badge in the status bar shows any errors or warnings; click it to reopen.
+*   **Run Python**: `.py` files run the same way, using [Pyodide](https://pyodide.org) (CPython 3.14 in WebAssembly, pinned to v314.0.7) in its own sandboxed worker. Nothing is downloaded until your first `.py` run, which shows *Loading Python runtime (~5 MB, first run only)…*; the runtime then stays loaded so later runs start instantly. It loads from the jsDelivr CDN, and falls back to the bundled copy in `vendor/pyodide/` when the CDN is unreachable (offline needs the editor served over http(s), not `file://`). `print()` goes to the console and anything on stderr, including tracebacks, shows as an error row with a `file:line` link. **■ Stop** ends the run by restarting Python (*Restarting Python…*). `input()` is not supported (there is no stdin), and only the active file runs: importing your other project files isn't supported yet. Pyodide packages such as `numpy` load automatically from the CDN when imported; the bundled offline copy is the standard library only.
 
 ## 📂 Project & File Management
 *   **New Project**: Resets the current environment and starts a fresh project.
@@ -121,7 +122,7 @@ Because CodeEdit persists your work in your browser's database, you may want to 
 | **Regex Search Mode** | `Alt + R` |
 
 ## ⚠️ Known Limitations
-1. No console or compiler yet
+1. The console only runs JavaScript and Python (no compiler or other languages yet)
 2. Binary files, videos, and certain unsupported formats are currently unsupported.
 
 ---
