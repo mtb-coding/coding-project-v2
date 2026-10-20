@@ -1,4 +1,5 @@
 ---CURRENT---
+index.html links codemirror/5.65.2/addon/scroll/annotatescrollbar.min.css on cdnjs, which does not exist (that addon ships no CSS). Firefox blocks it with a MIME-type error; harmless but noisy. Pre-existing; found during gate 3 Firefox testing.
 
 ---FIXED---
 Folder drop: if the File System Access walk failed partway and fell back to the legacy walk, already-loaded files were counted twice in "item(s) dropped" (flagged in gate 2 review; files were never duplicated thanks to createFile's existing-path guard). [fixed in gate 3 PR: each dropped item has its own counter; only the failing item's count resets before its fallback]
