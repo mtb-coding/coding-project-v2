@@ -10,6 +10,16 @@
 ## Bugfixes
 - Fixed dragging several selected files from the OS into the file tree importing only one (or none). The v0.3.4 fix only collected `getAsFileSystemHandle()` promises up front; the legacy fallback still read `DataTransferItem`s and `FileList` after an `await`, by which point the browser has cleared them, and items whose handle failed were silently dropped. Every item's handle, entry, and `File` is now snapshotted synchronously before any `await`, and each item falls back on its own (handle, then legacy entry for folders, then the plain `File`), so one failure no longer loses the rest.
 
+## Console panel
+- New bottom **Console** panel spanning the full editor width under the editor, minimap and preview (opening it only shortens the editor split). Toggle with the `Console` header button, `Ctrl+\``, or the command palette; resize from its top edge (120px min, 60% max; height persists in v2 settings).
+- `▶ Run` (`Ctrl+Enter` while the editor is focused on a `.js` file, or anywhere in the console panel; elsewhere `Ctrl+Enter` is left alone) runs the active `.js` file, including unsaved edits, and becomes `■ Stop` while the script's top level is executing or a `setTimeout`/`setInterval` it scheduled is still pending, so a runaway interval can be stopped. Code runs in a Web Worker inside a hidden `sandbox="allow-scripts"` iframe (opaque origin): no access to the editor's DOM, storage or session, an infinite loop never freezes the editor, and Stop tears the sandbox down. Built entirely from `srcdoc`/Blob URLs, so it makes no network requests and works offline and from `file://`.
+- Captures `console.log/info/debug/warn/error/assert`, uncaught errors and unhandled promise rejections. Warn rows get an amber bar and ⚠, error rows a red bar and ✕ with a collapsible stack and a `file:line` link that jumps the editor there. Consecutive identical lines collapse into ×N; each run starts with a dim `— Run main.js · HH:MM:SS —` separator; filters `All · Log · Warn · Error`; `Clear` (or `Ctrl+L` inside the panel) empties it, and a new run does not.
+- Output is batched in the worker (one message per ~50ms or 200 lines) so a script that logs in a tight loop can't flood the editor; each run is capped at 5,000 console lines, after which a single `…output truncated` row appears and Stop still works. The panel keeps the latest 2,000 rows.
+- Status bar badge (`● 2 errors · 1 warn`) appears when the panel is closed and has output; click it to open the panel.
+
+## Bugfixes (drop follow-up)
+- When a dropped folder's File System Access walk failed partway and fell back to the legacy walk, files that had already loaded were counted twice in the "item(s) dropped" message. Each dropped item now keeps its own count, and only that item's count is reset before its fallback, so items processed in parallel are never miscounted (the files themselves were never duplicated).
+
 ## Cleanup
 - Confirmed the scrollbar diagnostics logging (added in `7fdc179`) is fully removed; no `[Scrollbar]` console output remains.
 
