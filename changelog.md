@@ -25,6 +25,11 @@
 - `print()` and stdout become log rows and stderr becomes error rows, batched and capped like JS output (~50ms / 200 lines per message, 5,000 lines per run, then one `…output truncated` row). Tracebacks show as an error row with the exception as its title, a collapsible traceback limited to your file's frames, and a `file:line` link to the innermost line in your file (syntax errors included).
 - `input()` raises immediately and shows an error row `input() not supported` (with a link to the call); reading `sys.stdin` directly raises `OSError`. There is no stdin box.
 - `■ Stop` terminates the Python worker and starts a fresh one, with a dim `Restarting Python…` row (Python can't be interrupted in place without cross-origin isolation). A run started while it restarts waits for it and then runs.
+- Fast fallback: the CDN must answer the small loader probe (`pyodide.mjs`, ~18 KB) within 10s, otherwise the vendored copy is used immediately; the 90s timeout now only covers the heavy downloads (wasm, stdlib) once the CDN has answered. If `navigator.onLine` is `false`, the CDN is skipped and the vendored copy loads directly (no CDN requests).
+- Once the runtime has loaded, the first run's `Loading Python runtime…` row is replaced in place by a dim `Python ready (CDN)` or `Python ready (bundled copy)` row.
+- New command palette command **Console: Restart Python** restarts the worker (dim `Restarting Python…` row; stops a running script). Before Python has ever loaded it only shows a notice and downloads nothing.
+- Each run gets fresh globals, but interpreter state (`sys.modules`, edits to `builtins`, `os.chdir()`, environment variables, files in the in-memory file system) persists until Stop or Restart Python; documented in the README.
+- `vendor/pyodide/LICENSE`: full MPL-2.0 text for the vendored Pyodide files.
 
 ## Bugfixes (drop follow-up)
 - When a dropped folder's File System Access walk failed partway and fell back to the legacy walk, files that had already loaded were counted twice in the "item(s) dropped" message. Each dropped item now keeps its own count, and only that item's count is reset before its fallback, so items processed in parallel are never miscounted (the files themselves were never duplicated).

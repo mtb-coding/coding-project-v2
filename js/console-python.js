@@ -32,7 +32,11 @@ const PYODIDE_SOURCES = [
 ];
 const PYODIDE_CORE_FILES = ['pyodide.mjs', 'pyodide.asm.mjs', 'pyodide.asm.wasm', 'python_stdlib.zip', 'pyodide-lock.json'];
 const PYODIDE_VENDORED_VIRTUAL_BASE = 'https://codeedit-vendored-pyodide.invalid/';
-const PYODIDE_LOAD_TIMEOUT_MS = 90000; // per source
+// A remote source must answer the small loader probe (pyodide.mjs, ~18 KB) within PROBE_TIMEOUT,
+// otherwise we fall back right away (a hanging CDN no longer stalls the first run for 90s). Once the
+// probe has answered, the heavy downloads (wasm ~9.6 MB, stdlib ~2.5 MB) get LOAD_TIMEOUT.
+const PYODIDE_PROBE_TIMEOUT_MS = 10000;
+const PYODIDE_LOAD_TIMEOUT_MS = 90000; // per source, after the probe
 
 let pyFrame = null;
 let pyState = 'off';          // off | loading | ready | failed
@@ -46,6 +50,11 @@ let pyRunActive = false;
 let pyEverReady = false;
 let pyPreferredSource = 0;    // index into PYODIDE_SOURCES that last loaded OK
 let pyVendoredCache = null;   // { name: Blob }, fetched once per page
+let pyLoadingRow = null;      // the "Loading Python runtime…" row, replaced in place once ready
+// Runtime state between runs: every run gets a fresh globals dict (top-level names don't carry over),
+// but the interpreter itself stays warm, so sys.modules (imported modules), edits to builtins,
+// os.chdir(), environment variables and files written to Pyodide's in-memory FS all persist until
+// ■ Stop or "Console: Restart Python" restarts the worker.
 
 // ---------- Sandbox document (iframe + worker source) ----------
 function _pyBuildSandboxDoc() {
@@ -130,6 +139,7 @@ function _pyBuildSandboxDoc() {
                 createPyodideModule = (await import(blobUrl(src.files['pyodide.asm.mjs'], 'text/javascript'))).default;
             } else {
                 mod = await import(src.indexURL + 'pyodide.mjs');
+                postMessage({ type: 'py-probe-ok' }); // remote source answered; editor switches to the long timeout
             }
             // Pyodide reports a failed wasm instantiation / stdlib download only via console.warn/error
             // and then never resolves; turn those into a rejection so the next source is tried.
@@ -253,6 +263,11 @@ function _pySpawn() {
     pyState = 'loading';
     pyFailReasons = [];
     pySourceOrder = [pyPreferredSource].concat(PYODIDE_SOURCES.map((_, i) => i).filter(i => i !== pyPreferredSource));
+    // Browser says we're offline: don't even try remote sources, go straight to the vendored copy.
+    if (navigator.onLine === false) {
+        PYODIDE_SOURCES.forEach(src => { if (!src.vendored) pyFailReasons.push(`${src.label}: skipped (browser reports offline)`); });
+        pySourceOrder = pySourceOrder.filter(i => PYODIDE_SOURCES[i].vendored);
+    }
     pyAttempt = 0;
     _pyCreateFrame();
 }
@@ -292,8 +307,17 @@ async function _pyInitCurrentSource() {
         catch (err) { if (token === pyToken) _pySourceFailed(`could not read ${src.indexURL} (${err.message || err})`); return; }
         if (token !== pyToken || frame !== pyFrame) return;
     }
-    pyLoadTimer = setTimeout(() => { if (token === pyToken) _pySourceFailed(`timed out after ${PYODIDE_LOAD_TIMEOUT_MS / 1000}s`); }, PYODIDE_LOAD_TIMEOUT_MS);
+    _pyArmLoadTimer(src.vendored ? PYODIDE_LOAD_TIMEOUT_MS : PYODIDE_PROBE_TIMEOUT_MS, src.vendored ? 'timed out' : 'no response');
     frame.contentWindow.postMessage({ type: 'init', source: payload }, '*');
+}
+
+function _pyArmLoadTimer(ms, what) {
+    const token = pyToken, frame = pyFrame;
+    if (pyLoadTimer) clearTimeout(pyLoadTimer);
+    pyLoadTimer = setTimeout(() => {
+        pyLoadTimer = null;
+        if (token === pyToken && frame === pyFrame && pyState === 'loading') _pySourceFailed(`${what} after ${ms / 1000}s`);
+    }, ms);
 }
 
 function _pySourceFailed(reason) {
@@ -304,6 +328,7 @@ function _pySourceFailed(reason) {
     if (pyAttempt < pySourceOrder.length) { _pyCreateFrame(); return; } // fresh sandbox for the next source
     _pyTeardown();
     pyState = 'failed';
+    pyLoadingRow = null;
     if (pyPendingRun) {
         pyPendingRun = null;
         _consoleAddRow('error', 'Python runtime unavailable', pyFailReasons.join('\n'), true);
@@ -325,9 +350,15 @@ window.addEventListener('message', (e) => {
     switch (d.type) {
         case 'worker-up': _pyInitCurrentSource(); break;
         case 'py-load-failed': if (pyState === 'loading') _pySourceFailed(d.reason); break;
+        case 'py-probe-ok': if (pyState === 'loading') _pyArmLoadTimer(PYODIDE_LOAD_TIMEOUT_MS, 'timed out'); break;
         case 'py-ready':
             if (pyLoadTimer) { clearTimeout(pyLoadTimer); pyLoadTimer = null; }
             pyState = 'ready'; pyEverReady = true; pyPreferredSource = pySourceOrder[pyAttempt];
+            if (pyLoadingRow) {
+                pyLoadingRow.text = `Python ready (${PYODIDE_SOURCES[pyPreferredSource].vendored ? 'bundled copy' : 'CDN'})`;
+                pyLoadingRow = null;
+                _consoleScheduleRender();
+            }
             _pySendRun();
             break;
         case 'batch':
@@ -351,7 +382,8 @@ function pyRunInConsole(code, filename) {
     if (pyState === 'ready') { _pySendRun(); return; }
     if (pyState !== 'loading') {
         if (!pyEverReady || pyState === 'failed' || pyState === 'off') {
-            consoleRows.push({ kind: 'note', text: 'Loading Python runtime (~5 MB, first run only)…' });
+            pyLoadingRow = { kind: 'note', text: 'Loading Python runtime (~5 MB, first run only)…' };
+            consoleRows.push(pyLoadingRow);
         }
         _pySpawn();
     }
@@ -361,8 +393,21 @@ function pyRunInConsole(code, filename) {
 // (runtime stays warm for the next run).
 function pyStopAndRestart() {
     pyPendingRun = null;
+    pyLoadingRow = null;
     consoleRows.push({ kind: 'note', text: 'Restarting Python…' });
     _pySpawn();
+}
+
+// Command palette "Console: Restart Python": fresh interpreter without running anything.
+function restartPythonRuntime() {
+    if (!(pyState === 'ready' || pyState === 'loading' || pyEverReady)) {
+        showNotification('Python is not loaded yet; it starts on the first .py run.');
+        return;
+    }
+    if (!consoleOpen) openConsolePanel();
+    if (consoleRunKind === 'py' && consoleRunning) _consoleSetRunning(false);
+    pyStopAndRestart();
+    renderConsole();
 }
 
 function pyRuntimeState() { return { state: pyState, runActive: pyRunActive, source: pyState === 'ready' ? PYODIDE_SOURCES[pyPreferredSource].id : null }; }
