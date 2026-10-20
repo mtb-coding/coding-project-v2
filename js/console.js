@@ -22,6 +22,9 @@ let consoleRunFrame = null;
 let consoleRunToken = 0;
 let consoleRunFileName = '';
 let consoleRunFilePath = null;
+let consoleTopLevelDone = false;   // worker finished the script's top level
+let consolePendingTimers = 0;      // timers still scheduled in the sandbox
+const CONSOLE_MAX_ROWS = 2000;
 
 // ---------- Sandbox bootstrap (runs inside the opaque-origin iframe) ----------
 function _consoleBuildSandboxDoc() {
@@ -59,26 +62,75 @@ function _consoleBuildSandboxDoc() {
                 return name + '{' + (body.length ? ' ' + body.join(', ') + ' ' : '') + '}';
             } catch (e) { return '[Unserializable]'; }
         };
-        const send = (level, args, extra) => {
+        // Output is batched: one postMessage per FLUSH_MS or FLUSH_LINES, so a loop that logs
+        // as fast as it can never floods the editor's main thread. After MAX_LINES console lines
+        // per run, further console output is dropped and a single "truncated" marker is sent.
+        const MAX_LINES = 5000, FLUSH_LINES = 200, FLUSH_MS = 50;
+        const _setTimeout = self.setTimeout.bind(self), _clearTimeout = self.clearTimeout.bind(self);
+        const _setInterval = self.setInterval.bind(self), _clearInterval = self.clearInterval.bind(self);
+        let buf = [], sentLines = 0, truncated = false, lastFlush = Date.now(), flushTimer = null;
+        const flush = () => {
+            if (flushTimer) { _clearTimeout(flushTimer); flushTimer = null; }
+            if (buf.length) { postMessage({ type: 'batch', items: buf }); buf = []; }
+            lastFlush = Date.now();
+        };
+        const queue = (msg, bypassCap) => {
+            if (!bypassCap) {
+                if (truncated) return;
+                if (sentLines >= MAX_LINES) { truncated = true; buf.push({ type: 'truncated', limit: MAX_LINES }); flush(); return; }
+                sentLines++;
+            }
+            buf.push(msg);
+            if (buf.length >= FLUSH_LINES || Date.now() - lastFlush >= FLUSH_MS) flush();
+            else if (!flushTimer) flushTimer = _setTimeout(flush, FLUSH_MS);
+        };
+        const send = (level, args) => {
             let text;
             try { text = Array.prototype.map.call(args, a => fmt(a)).join(' '); } catch (e) { text = '[Unserializable]'; }
-            postMessage(Object.assign({ type: 'console', level: level, text: text }, extra || {}));
+            queue({ type: 'console', level: level, text: text });
         };
+        // Track pending timers so the editor can keep showing Stop while a setTimeout/setInterval
+        // is still scheduled (promises/fetch aren't tracked; Stop always works regardless).
+        const pending = new Set();
+        let lastReported = -1;
+        const reportActivity = () => {
+            const busy = pending.size > 0 ? 1 : 0;
+            if (busy !== lastReported) { lastReported = busy; flush(); postMessage({ type: 'activity', pending: pending.size }); }
+        };
+        self.setTimeout = function (fn, ms) {
+            const args = Array.prototype.slice.call(arguments, 2);
+            const id = _setTimeout(function () {
+                pending.delete(id);
+                try { if (typeof fn === 'function') fn.apply(self, args); } finally { reportActivity(); }
+            }, ms);
+            pending.add(id); reportActivity();
+            return id;
+        };
+        self.clearTimeout = function (id) { _clearTimeout(id); pending.delete(id); reportActivity(); };
+        self.setInterval = function (fn, ms) {
+            const args = Array.prototype.slice.call(arguments, 2);
+            const id = _setInterval(function () { if (typeof fn === 'function') fn.apply(self, args); }, ms);
+            pending.add(id); reportActivity();
+            return id;
+        };
+        self.clearInterval = function (id) { _clearInterval(id); pending.delete(id); reportActivity(); };
         const map = { log: 'log', info: 'log', debug: 'log', trace: 'log', warn: 'warn', error: 'error' };
         Object.keys(map).forEach(m => { console[m] = function () { send(map[m], arguments); }; });
         console.assert = function (cond) { if (!cond) send('error', ['Assertion failed:'].concat(Array.prototype.slice.call(arguments, 1))); };
         console.clear = function () {};
         const reportError = (err, fallbackMsg) => {
             const isErr = err && typeof err === 'object' && 'message' in err;
-            postMessage({ type: 'uncaught',
+            queue({ type: 'uncaught',
                 text: isErr ? ((err.name || 'Error') + ': ' + String(err.message).replace(/^Failed to execute 'importScripts' on 'WorkerGlobalScope': /, '')) : ('Uncaught ' + (fallbackMsg || fmt(err))),
-                stack: isErr && err.stack ? String(err.stack) : '' });
+                stack: isErr && err.stack ? String(err.stack) : '' }, true);
         };
         self.addEventListener('error', e => { e.preventDefault(); reportError(e.error, e.message); });
         self.addEventListener('unhandledrejection', e => { e.preventDefault(); reportError(e.reason, 'Unhandled promise rejection: ' + fmt(e.reason)); });
         self.onmessage = e => {
             try { importScripts(e.data); } catch (err) { reportError(err); }
+            flush();
             postMessage({ type: 'done' });
+            lastReported = -1; reportActivity();
         };
     `;
     // Iframe-side: create the worker, relay messages to the parent, nothing else.
@@ -142,6 +194,8 @@ function runActiveFileInConsole() {
     frame.dataset.runToken = String(token);
     frame.srcdoc = _consoleBuildSandboxDoc();
     frame._pendingCode = code;
+    consoleTopLevelDone = false;
+    consolePendingTimers = 0;
     document.body.appendChild(frame);
     consoleRunFrame = frame;
     _consoleSetRunning(true);
@@ -175,11 +229,21 @@ window.addEventListener('message', (e) => {
         consoleRunFrame._pendingCode = null;
         return;
     }
-    if (d.type === 'done') { _consoleSetRunning(false); return; } // worker stays alive for async output
-    if (d.type === 'console') _consoleAddRow(d.level, d.text, '');
-    else if (d.type === 'uncaught') _consoleAddRow('error', d.text, d.stack || '', true);
-    else if (d.type === 'fatal') { _consoleAddRow('error', d.text, '', true); _consoleSetRunning(false); }
+    // Stop stays visible while the top level is executing OR timers are still scheduled.
+    if (d.type === 'done') { consoleTopLevelDone = true; _consoleSetRunning(consolePendingTimers > 0); return; }
+    if (d.type === 'activity') { consolePendingTimers = d.pending || 0; _consoleSetRunning(!consoleTopLevelDone || consolePendingTimers > 0); return; }
+    if (d.type === 'batch' && Array.isArray(d.items)) { d.items.forEach(_consoleHandleItem); _consoleScheduleRender(); return; }
+    if (d.type === 'fatal') { _consoleAddRow('error', d.text, '', true); _consoleSetRunning(false); _consoleScheduleRender(); }
 });
+
+function _consoleHandleItem(item) {
+    if (!item) return;
+    if (item.type === 'console') _consoleAddRow(item.level, item.text, '');
+    else if (item.type === 'uncaught') _consoleAddRow('error', item.text, item.stack || '', true);
+    else if (item.type === 'truncated') {
+        consoleRows.push({ kind: 'row', level: 'warn', text: `…output truncated (${item.limit}-line limit per run). Press ■ Stop to end the script.`, stack: '', count: 1 });
+    }
+}
 
 // ---------- Rows ----------
 function _consoleParseLoc(stack) {
@@ -199,8 +263,7 @@ function _consoleAddRow(level, text, stack, uncaught) {
     } else {
         consoleRows.push({ kind: 'row', level, text, stack: cleanStack, loc, count: 1, uncaught: !!uncaught });
     }
-    if (consoleRows.length > 5000) consoleRows.splice(0, consoleRows.length - 5000);
-    _consoleScheduleRender();
+    if (consoleRows.length > CONSOLE_MAX_ROWS) consoleRows.splice(0, consoleRows.length - CONSOLE_MAX_ROWS);
 }
 
 let _consoleRenderQueued = false;
@@ -396,7 +459,15 @@ function initConsolePanel() {
     document.addEventListener('keydown', (e) => {
         if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
         if (e.code === 'Backquote' || e.key === '`') { e.preventDefault(); toggleConsolePanel(); }
-        else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); runActiveFileInConsole(); }
+        else if (e.key === 'Enter' && !e.shiftKey) {
+            // Only claim Ctrl+Enter when it means "run": focus is in the console, or focus is in
+            // the editor and the active file is runnable. Palette inputs, other fields and
+            // non-runnable files keep their normal Ctrl+Enter behaviour.
+            const ae = document.activeElement;
+            const inConsole = !!(ae && ae.closest && ae.closest('#consolePanel'));
+            const inEditor = !!(ae && ae.closest && ae.closest('#codeEditor'));
+            if (inConsole || (inEditor && _consoleActiveRunnable())) { e.preventDefault(); e.stopPropagation(); runActiveFileInConsole(); }
+        }
     }, true);
 
     renderConsole();

@@ -1,7 +1,7 @@
 ---CURRENT---
 
 ---FIXED---
-Folder drop: if the File System Access walk failed partway and fell back to the legacy walk, already-loaded files were counted twice in "item(s) dropped" (flagged in gate 2 review; files were never duplicated thanks to createFile's existing-path guard). [fixed in gate 3 PR: count is rolled back before the fallback]
+Folder drop: if the File System Access walk failed partway and fell back to the legacy walk, already-loaded files were counted twice in "item(s) dropped" (flagged in gate 2 review; files were never duplicated thanks to createFile's existing-path guard). [fixed in gate 3 PR: each dropped item has its own counter; only the failing item's count resets before its fallback]
 Dragdropping multiple selected files uploadas only 1. [fixed in v0.4.0: every dropped item is now captured synchronously before any await, with per-item fallback]
 Minor bug: "Done — 0 item(s) dropped." status message when dragdropping an item within the explorer (this has existed ever since internal dragdropping was added and I have no clue how to fix it). [finally fixed after 3 separate attempts]
 Clicking/opening files does not immediately highlight (turn them blue) them in the tree; they are only highlighted upon refresh. [fixed]

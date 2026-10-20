@@ -11,7 +11,7 @@ This is **coding-project-v2**, a fork of [mtb-coding/coding-project](https://git
 **For the stable versions, see releases. Repo code is the current WIP version and might be broken.**
 
 ## 🖥️ Console
-*   **Run JS**: Open the **Console** panel (`Console` button, `Ctrl+\``, or the command palette) and press **▶ Run** (`Ctrl+Enter`) to run the active `.js` file. It runs in an isolated sandbox with no access to the editor or its storage, and works offline. While a script's top level is running the button becomes **■ Stop**.
+*   **Run JS**: Open the **Console** panel (`Console` button, `Ctrl+\``, or the command palette) and press **▶ Run** (`Ctrl+Enter` in the editor or console) to run the active `.js` file. It runs in an isolated sandbox with no access to the editor or its storage, and works offline. While a script is running, or still has timers pending, the button becomes **■ Stop**. Output is capped at 5,000 lines per run.
 *   **Output**: `console.log`, `warn`, `error`, uncaught errors and unhandled promise rejections appear in the panel. Errors link to `file:line`; repeated lines collapse into ×N. Filter by All / Log / Warn / Error, and **Clear** (`Ctrl+L` in the panel) to empty it.
 *   When the panel is closed, a badge in the status bar shows any errors or warnings; click it to reopen.
 

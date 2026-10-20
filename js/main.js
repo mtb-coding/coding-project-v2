@@ -251,12 +251,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         // --- MODERN API: File System Access API ---
-        const processHandle = async (handle, currentParentPath) => {
+        const processHandle = async (handle, currentParentPath, ctr) => {
             if (handle.kind === 'file') {
                 const file = await handle.getFile();
                 if (file.size > MAX_FILE_SIZE_BYTES) {
                     createFile(`${currentParentPath}/${file.name}`, `[File too large: ${file.name}]`, false);
-                    filesProcessed++; return;
+                    ctr.n++; return;
                 }
                 await new Promise((resolve) => {
                     const reader = new FileReader();
@@ -265,13 +265,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                         if (!fileStructure[fullPath] || fileStructure[fullPath].isUntitled) {
                             createFile(fullPath, event.target.result, false);
                         }
-                        filesProcessed++; resolve();
+                        ctr.n++; resolve();
                     };
-                    reader.onerror = () => { filesProcessed++; resolve(); };
+                    reader.onerror = () => { ctr.n++; resolve(); };
                     const readMode = getFileReadMode(file.name);
                     if (readMode === 'dataurl') reader.readAsDataURL(file);
                     else if (readMode === 'text') reader.readAsText(file);
-                    else { createFile(`${currentParentPath}/${file.name}`, `[Binary file: ${file.name}]`, false); filesProcessed++; resolve(); }
+                    else { createFile(`${currentParentPath}/${file.name}`, `[Binary file: ${file.name}]`, false); ctr.n++; resolve(); }
                 });
             } else if (handle.kind === 'directory') {
                 if (SKIP_DIRS.has(handle.name)) return;
@@ -280,19 +280,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                 else fileStructure[newFolderPath].expanded = true;
 
                 for await (const entry of handle.values()) {
-                    await processHandle(entry, newFolderPath);
+                    await processHandle(entry, newFolderPath, ctr);
                 }
             }
         };
 
         // --- LEGACY API: File and Directory Entries API ---
-        const processEntry = (entry, currentPathInZip) => {
+        const processEntry = (entry, currentPathInZip, ctr) => {
             return new Promise((resolveEntry, rejectEntry) => {
                 if (entry.isFile) {
                     entry.file((file) => {
                         if (file.size > MAX_FILE_SIZE_BYTES) {
                             createFile(`${baseDropPath}/${currentPathInZip}`, `[File too large: ${file.name}]`, false); 
-                            filesProcessed++; resolveEntry(); return;
+                            ctr.n++; resolveEntry(); return;
                         }
                         const reader = new FileReader();
                         reader.onload = (event) => {
@@ -300,18 +300,18 @@ document.addEventListener('DOMContentLoaded', async () => {
                             if (!fileStructure[fullPath] || fileStructure[fullPath].isUntitled) {
                                 createFile(fullPath, event.target.result, false);
                             }
-                            filesProcessed++; resolveEntry();
+                            ctr.n++; resolveEntry();
                         };
-                        reader.onerror = () => { filesProcessed++; resolveEntry(); };
+                        reader.onerror = () => { ctr.n++; resolveEntry(); };
                         const readMode = getFileReadMode(file.name);
                         if (readMode === 'dataurl') reader.readAsDataURL(file);
                         else if (readMode === 'text') reader.readAsText(file);
-                        else { createFile(`${baseDropPath}/${currentPathInZip}`, `[Binary file: ${file.name}]`, false); filesProcessed++; resolveEntry(); }
+                        else { createFile(`${baseDropPath}/${currentPathInZip}`, `[Binary file: ${file.name}]`, false); ctr.n++; resolveEntry(); }
                     }, (err) => { 
                         rejectEntry(err); // Trigger catch block for Chrome EncodingError
                     });
                 } else if (entry.isDirectory) {
-                    if (SKIP_DIRS.has(entry.name)) { filesProcessed++; resolveEntry(); return; }
+                    if (SKIP_DIRS.has(entry.name)) { ctr.n++; resolveEntry(); return; }
                     const dirPathInStructure = `${baseDropPath}/${currentPathInZip}`;
                     if (!fileStructure[dirPathInStructure]) createFolder(dirPathInStructure, true);
                     else fileStructure[dirPathInStructure].expanded = true;
@@ -332,26 +332,26 @@ document.addEventListener('DOMContentLoaded', async () => {
                     readEntriesRecursive().then(async () => {
                         for (const subEntry of allEntries) {
                             try {
-                                await processEntry(subEntry, `${currentPathInZip}/${subEntry.name}`);
+                                await processEntry(subEntry, `${currentPathInZip}/${subEntry.name}`, ctr);
                             } catch (err) {
                                 rejectEntry(err); return;
                             }
                         }
-                        filesProcessed++; resolveEntry();
+                        ctr.n++; resolveEntry();
                     }).catch(err => rejectEntry(err));
                 } else { 
-                    filesProcessed++; resolveEntry(); 
+                    ctr.n++; resolveEntry(); 
                 }
             });
         };
 
         // --- DIRECT FILE API: Fallback for basic files ---
-        const processFileDirect = (file, pathPrefix) => {
+        const processFileDirect = (file, pathPrefix, ctr) => {
             return new Promise((resolve) => {
                 if (!file) { resolve(); return; }
                 if (file.size > MAX_FILE_SIZE_BYTES) {
                     createFile(`${pathPrefix}/${file.name}`, `[File too large: ${file.name}]`, false);
-                    filesProcessed++; resolve(); return;
+                    ctr.n++; resolve(); return;
                 }
                 const reader = new FileReader();
                 reader.onload = (event) => {
@@ -359,13 +359,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                     if (!fileStructure[fullPath] || fileStructure[fullPath].isUntitled) {
                         createFile(fullPath, event.target.result, false);
                     }
-                    filesProcessed++; resolve();
+                    ctr.n++; resolve();
                 };
-                reader.onerror = () => { filesProcessed++; resolve(); };
+                reader.onerror = () => { ctr.n++; resolve(); };
                 const readMode = getFileReadMode(file.name);
                 if (readMode === 'dataurl') reader.readAsDataURL(file);
                 else if (readMode === 'text') reader.readAsText(file);
-                else { createFile(`${pathPrefix}/${file.name}`, `[Binary file: ${file.name}]`, false); filesProcessed++; resolve(); }
+                else { createFile(`${pathPrefix}/${file.name}`, `[Binary file: ${file.name}]`, false); ctr.n++; resolve(); }
             });
         };
 
@@ -402,28 +402,32 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Process one dropped item: File System Access handle first, then legacy entry
         // (needed for folders), then the plain File. Each item falls back on its own, so one
         // failure never drops the rest.
-        const processSnapshot = async (snap) => {
+        // Each dropped item gets its own counter (items run in parallel, so a shared counter
+        // can't be rolled back safely). The totals are summed once everything has settled.
+        const processSnapshot = async (snap, ctr) => {
             const handle = snap.handlePromise ? await snap.handlePromise : null;
             if (handle) {
-                const countBefore = filesProcessed;
-                try { await processHandle(handle, baseDropPath); return; }
+                try { await processHandle(handle, baseDropPath, ctr); return; }
                 catch (err) {
-                    // The legacy walk below re-visits this item. Files that already loaded are skipped by
-                    // createFile's existing-path guard, but they'd be counted twice, so roll the count back.
-                    filesProcessed = countBefore;
+                    // The legacy walk below re-visits this whole item. Files that already loaded are
+                    // skipped by createFile's existing-path guard; reset only THIS item's count so
+                    // they aren't counted twice.
+                    ctr.n = 0;
                     console.warn('Handle processing failed; trying legacy path for this item:', err);
                 }
             }
             if (snap.entry && snap.entry.isDirectory) {
-                await processEntry(snap.entry, snap.entry.name);
+                await processEntry(snap.entry, snap.entry.name, ctr);
                 return;
             }
             // Top-level files bypass entry.file() to prevent EncodingError on basic file drops.
-            if (snap.file) await processFileDirect(snap.file, baseDropPath);
+            if (snap.file) await processFileDirect(snap.file, baseDropPath, ctr);
         };
 
         try {
-            const results = await Promise.allSettled(dropSnapshots.map(processSnapshot));
+            const counters = dropSnapshots.map(() => ({ n: 0 }));
+            const results = await Promise.allSettled(dropSnapshots.map((snap, i) => processSnapshot(snap, counters[i])));
+            filesProcessed = counters.reduce((sum, c) => sum + c.n, 0);
             const failures = results.filter(r => r.status === 'rejected');
             if (failures.length > 0) {
                 failures.forEach(f => console.error('Dropped item failed:', f.reason));
