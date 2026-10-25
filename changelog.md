@@ -1,14 +1,6 @@
 *(repo might not be updated as fast as the changelog; as such the changes here might not be there yet)*
 
-# Changes in v0.4.0 (coding-project-v2)
-
-## Fork
-- Forked from mtb-coding/coding-project at v0.3.4 (`ad7e22d`) as coding-project-v2, with full history preserved.
-- Version bumped to 0.4.0.
-- Session and settings storage keys are now namespaced (`codeEditV2_session_0.4.0`, `codeEditV2_settings`), so v2 has its own browser storage and never shares it with the original. Existing v0.3.x sessions and settings are intentionally not migrated.
-
-## Bugfixes
-- Fixed dragging several selected files from the OS into the file tree importing only one (or none). The v0.3.4 fix only collected `getAsFileSystemHandle()` promises up front; the legacy fallback still read `DataTransferItem`s and `FileList` after an `await`, by which point the browser has cleared them, and items whose handle failed were silently dropped. Every item's handle, entry, and `File` is now snapshotted synchronously before any `await`, and each item falls back on its own (handle, then legacy entry for folders, then the plain `File`), so one failure no longer loses the rest.
+# Changes in v0.5.0 (coding-project-v2)
 
 ## Console panel
 - New bottom **Console** panel spanning the full editor width under the editor, minimap and preview (opening it only shortens the editor split). Toggle with the `Console` header button, `Ctrl+\``, or the command palette; resize from its top edge (120px min, 60% max; height persists in v2 settings).
@@ -33,6 +25,16 @@
 
 ## Bugfixes (drop follow-up)
 - When a dropped folder's File System Access walk failed partway and fell back to the legacy walk, files that had already loaded were counted twice in the "item(s) dropped" message. Each dropped item now keeps its own count, and only that item's count is reset before its fallback, so items processed in parallel are never miscounted (the files themselves were never duplicated).
+
+# Changes in v0.4.0 (coding-project-v2)
+
+## Fork
+- Forked from mtb-coding/coding-project at v0.3.4 (`ad7e22d`) as coding-project-v2, with full history preserved.
+- Version bumped to 0.4.0.
+- Session and settings storage keys are now namespaced (`codeEditV2_session_0.4.0`, `codeEditV2_settings`), so v2 has its own browser storage and never shares it with the original. Existing v0.3.x sessions and settings are intentionally not migrated.
+
+## Bugfixes
+- Fixed dragging several selected files from the OS into the file tree importing only one (or none). The v0.3.4 fix only collected `getAsFileSystemHandle()` promises up front; the legacy fallback still read `DataTransferItem`s and `FileList` after an `await`, by which point the browser has cleared them, and items whose handle failed were silently dropped. Every item's handle, entry, and `File` is now snapshotted synchronously before any `await`, and each item falls back on its own (handle, then legacy entry for folders, then the plain `File`), so one failure no longer loses the rest.
 
 ## Cleanup
 - Confirmed the scrollbar diagnostics logging (added in `7fdc179`) is fully removed; no `[Scrollbar]` console output remains.
