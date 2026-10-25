@@ -1,5 +1,31 @@
 *(repo might not be updated as fast as the changelog; as such the changes here might not be there yet)*
 
+# Changes in v0.5.0 (coding-project-v2)
+
+## Console panel
+- New bottom **Console** panel spanning the full editor width under the editor, minimap and preview (opening it only shortens the editor split). Toggle with the `Console` header button, `Ctrl+\``, or the command palette; resize from its top edge (120px min, 60% max; height persists in v2 settings).
+- `▶ Run` (`Ctrl+Enter` while the editor is focused on a `.js` file, or anywhere in the console panel; elsewhere `Ctrl+Enter` is left alone) runs the active `.js` file, including unsaved edits, and becomes `■ Stop` while the script's top level is executing or a `setTimeout`/`setInterval` it scheduled is still pending, so a runaway interval can be stopped. Code runs in a Web Worker inside a hidden `sandbox="allow-scripts"` iframe (opaque origin): no access to the editor's DOM, storage or session, an infinite loop never freezes the editor, and Stop tears the sandbox down. Built entirely from `srcdoc`/Blob URLs, so it makes no network requests and works offline and from `file://`.
+- Captures `console.log/info/debug/warn/error/assert`, uncaught errors and unhandled promise rejections. Warn rows get an amber bar and ⚠, error rows a red bar and ✕ with a collapsible stack and a `file:line` link that jumps the editor there. Consecutive identical lines collapse into ×N; each run starts with a dim `— Run main.js · HH:MM:SS —` separator; filters `All · Log · Warn · Error`; `Clear` (or `Ctrl+L` inside the panel) empties it, and a new run does not.
+- Output is batched in the worker (one message per ~50ms or 200 lines) so a script that logs in a tight loop can't flood the editor; each run is capped at 5,000 console lines, after which a single `…output truncated` row appears and Stop still works. The panel keeps the latest 2,000 rows.
+- Status bar badge (`● 2 errors · 1 warn`) appears when the panel is closed and has output; click it to open the panel.
+
+## Console: Python
+- `.py` files are now runnable in the Console (`▶ Run`, or `Ctrl+Enter` with the same scoping as `.js`); the empty state reads "Console runs .js and .py files."
+- Python runs on [Pyodide](https://pyodide.org) **v314.0.7** (CPython 3.14), pinned. It is loaded lazily on the first `.py` run only, so the editor still boots with zero Pyodide requests. The first run shows a dim `Loading Python runtime (~5 MB, first run only)…` row; the runtime then stays warm between runs, and each run gets fresh globals.
+- Sources, in order (`PYODIDE_SOURCES` in `js/console-python.js`): the jsDelivr CDN, then a vendored copy of the core runtime at the same version in `vendor/pyodide/` (`pyodide.mjs`, `pyodide.asm.mjs`, `pyodide.asm.wasm`, `python_stdlib.zip`, `pyodide-lock.json`, ~13 MB, byte-identical to the CDN). If every source fails, an error row reads `Python runtime unavailable` with the reason for each source.
+- Isolation matches the JS console: Python runs in a dedicated module Web Worker inside a hidden `sandbox="allow-scripts"` iframe (opaque origin), so user code can't reach the editor's DOM, storage or session. Because a same-origin static server sends no CORS headers, the sandbox can't fetch `vendor/pyodide/` itself; the editor page reads those files and hands them to the sandbox as Blobs instead.
+- `print()` and stdout become log rows and stderr becomes error rows, batched and capped like JS output (~50ms / 200 lines per message, 5,000 lines per run, then one `…output truncated` row). Tracebacks show as an error row with the exception as its title, a collapsible traceback limited to your file's frames, and a `file:line` link to the innermost line in your file (syntax errors included).
+- `input()` raises immediately and shows an error row `input() not supported` (with a link to the call); reading `sys.stdin` directly raises `OSError`. There is no stdin box.
+- `■ Stop` terminates the Python worker and starts a fresh one, with a dim `Restarting Python…` row (Python can't be interrupted in place without cross-origin isolation). A run started while it restarts waits for it and then runs.
+- Fast fallback: the CDN must answer the small loader probe (`pyodide.mjs`, ~18 KB) within 10s, otherwise the vendored copy is used immediately; the 90s timeout now only covers the heavy downloads (wasm, stdlib) once the CDN has answered. If `navigator.onLine` is `false`, the CDN is skipped and the vendored copy loads directly (no CDN requests).
+- Once the runtime has loaded, the first run's `Loading Python runtime…` row is replaced in place by a dim `Python ready (CDN)` or `Python ready (bundled copy)` row.
+- New command palette command **Console: Restart Python** restarts the worker (dim `Restarting Python…` row; stops a running script). Before Python has ever loaded it only shows a notice and downloads nothing.
+- Each run gets fresh globals, but interpreter state (`sys.modules`, edits to `builtins`, `os.chdir()`, environment variables, files in the in-memory file system) persists until Stop or Restart Python; documented in the README.
+- `vendor/pyodide/LICENSE`: full MPL-2.0 text for the vendored Pyodide files.
+
+## Bugfixes (drop follow-up)
+- When a dropped folder's File System Access walk failed partway and fell back to the legacy walk, files that had already loaded were counted twice in the "item(s) dropped" message. Each dropped item now keeps its own count, and only that item's count is reset before its fallback, so items processed in parallel are never miscounted (the files themselves were never duplicated).
+
 # Changes in v0.4.0 (coding-project-v2)
 
 ## Fork
@@ -9,16 +35,6 @@
 
 ## Bugfixes
 - Fixed dragging several selected files from the OS into the file tree importing only one (or none). The v0.3.4 fix only collected `getAsFileSystemHandle()` promises up front; the legacy fallback still read `DataTransferItem`s and `FileList` after an `await`, by which point the browser has cleared them, and items whose handle failed were silently dropped. Every item's handle, entry, and `File` is now snapshotted synchronously before any `await`, and each item falls back on its own (handle, then legacy entry for folders, then the plain `File`), so one failure no longer loses the rest.
-
-## Console panel
-- New bottom **Console** panel spanning the full editor width under the editor, minimap and preview (opening it only shortens the editor split). Toggle with the `Console` header button, `Ctrl+\``, or the command palette; resize from its top edge (120px min, 60% max; height persists in v2 settings).
-- `▶ Run` (`Ctrl+Enter` while the editor is focused on a `.js` file, or anywhere in the console panel; elsewhere `Ctrl+Enter` is left alone) runs the active `.js` file, including unsaved edits, and becomes `■ Stop` while the script's top level is executing or a `setTimeout`/`setInterval` it scheduled is still pending, so a runaway interval can be stopped. Code runs in a Web Worker inside a hidden `sandbox="allow-scripts"` iframe (opaque origin): no access to the editor's DOM, storage or session, an infinite loop never freezes the editor, and Stop tears the sandbox down. Built entirely from `srcdoc`/Blob URLs, so it makes no network requests and works offline and from `file://`.
-- Captures `console.log/info/debug/warn/error/assert`, uncaught errors and unhandled promise rejections. Warn rows get an amber bar and ⚠, error rows a red bar and ✕ with a collapsible stack and a `file:line` link that jumps the editor there. Consecutive identical lines collapse into ×N; each run starts with a dim `— Run main.js · HH:MM:SS —` separator; filters `All · Log · Warn · Error`; `Clear` (or `Ctrl+L` inside the panel) empties it, and a new run does not.
-- Output is batched in the worker (one message per ~50ms or 200 lines) so a script that logs in a tight loop can't flood the editor; each run is capped at 5,000 console lines, after which a single `…output truncated` row appears and Stop still works. The panel keeps the latest 2,000 rows.
-- Status bar badge (`● 2 errors · 1 warn`) appears when the panel is closed and has output; click it to open the panel.
-
-## Bugfixes (drop follow-up)
-- When a dropped folder's File System Access walk failed partway and fell back to the legacy walk, files that had already loaded were counted twice in the "item(s) dropped" message. Each dropped item now keeps its own count, and only that item's count is reset before its fallback, so items processed in parallel are never miscounted (the files themselves were never duplicated).
 
 ## Cleanup
 - Confirmed the scrollbar diagnostics logging (added in `7fdc179`) is fully removed; no `[Scrollbar]` console output remains.
